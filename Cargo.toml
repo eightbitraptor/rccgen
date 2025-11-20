@@ -1,0 +1,28 @@
+[package]
+name = "rccgen"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matt Valentine-House <matt@eightbitraptor.com>"]
+description = "Generate compile_commands.json from Make/autotools projects"
+homepage = "https://github.com/eightbitraptor/rccgen"
+repository = "https://github.com/eightbitraptor/rccgen"
+license = "GPL-3.0"
+readme = "README.md"
+keywords = ["compilation-database", "make", "autotools", "clangd", "language-server"]
+categories = ["development-tools::build-utils", "development-tools", "command-line-utilities"]
+rust-version = "1.74.0"
+
+[lib]
+name = "rccgen"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rccgen"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+walkdir = "2.4"
+regex = "1.10"
+rayon = "1.10"

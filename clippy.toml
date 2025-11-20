@@ -1,0 +1,14 @@
+# Clippy configuration for rccgen
+
+msrv = "1.74.0"
+too-many-arguments-threshold = 5
+too-many-lines-threshold = 50
+cognitive-complexity-threshold = 20
+disallowed-macros = [
+    { path = "std::dbg", reason = "use proper logging instead" },
+    { path = "std::print", reason = "use eprintln for error messages" },
+    { path = "std::println", reason = "use eprintln for error messages" },
+]
+single-char-binding-names-threshold = 4
+missing-docs-in-crate-items = true
+type-complexity-threshold = 250
