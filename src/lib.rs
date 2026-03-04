@@ -155,11 +155,7 @@ impl RccGen {
             eprintln!("rccgen: Initial make stderr:\n{}", stderr.trim());
         }
 
-        Err(self.make_failed(
-            &fallback_args,
-            fallback_status,
-            fallback_stderr.as_bytes(),
-        ))
+        Err(self.make_failed(&fallback_args, fallback_status, fallback_stderr.as_bytes()))
     }
 
     fn run_make_dry_attempt(&self, args: &[&str]) -> io::Result<(ExitStatus, Vec<CompileCommand>, String)> {

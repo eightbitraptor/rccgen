@@ -98,8 +98,17 @@ mod tests {
 
     #[test]
     fn test_normalize_path() {
-        assert_eq!(normalize_path(Path::new("/project/./src/../file.c")), PathBuf::from("/project/file.c"));
-        assert_eq!(normalize_path(Path::new("src/./dir/../file.c")), PathBuf::from("src/file.c"));
-        assert_eq!(normalize_path(Path::new("../src/../file.c")), PathBuf::from("../file.c"));
+        assert_eq!(
+            normalize_path(Path::new("/project/./src/../file.c")),
+            PathBuf::from("/project/file.c")
+        );
+        assert_eq!(
+            normalize_path(Path::new("src/./dir/../file.c")),
+            PathBuf::from("src/file.c")
+        );
+        assert_eq!(
+            normalize_path(Path::new("../src/../file.c")),
+            PathBuf::from("../file.c")
+        );
     }
 }
