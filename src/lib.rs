@@ -292,16 +292,17 @@ impl RccGen {
             .max_depth(5)
             .follow_links(false)
             .into_iter()
+            .filter_entry(|entry| {
+                if !entry.file_type().is_dir() {
+                    return true;
+                }
+
+                let name = entry.file_name().to_str().unwrap_or("");
+                !(name.starts_with('.') || name == "build" || name == "CMakeFiles")
+            })
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
-
-            if path.is_dir() {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if name.starts_with('.') || name == "build" || name == "CMakeFiles" {
-                    continue;
-                }
-            }
 
             if path.is_file() {
                 if let Some(ext) = path.extension() {
