@@ -173,8 +173,7 @@ impl RccGen {
 
         for cmd in commands {
             let file_path = cmd.file.clone();
-            if !self.processed_files.contains(&file_path) {
-                self.processed_files.insert(file_path);
+            if self.processed_files.insert(file_path) {
                 self.compile_commands.push(cmd);
             }
         }
@@ -266,9 +265,7 @@ impl RccGen {
         if let Some(flags) = base_flags {
             for header_path in headers {
                 let header_str = header_path.to_string_lossy().into_owned();
-                if !self.processed_files.contains(&header_str) {
-                    self.processed_files.insert(header_str.clone());
-
+                if self.processed_files.insert(header_str.clone()) {
                     let mut cmd_flags = flags.clone();
                     cmd_flags.push("-c".to_string());
                     cmd_flags.push("-x".to_string());
