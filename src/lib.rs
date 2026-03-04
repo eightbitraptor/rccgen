@@ -249,17 +249,14 @@ impl RccGen {
             unique_roots.push(dir);
         }
 
-        let header_results: Vec<io::Result<Vec<PathBuf>>> = unique_roots
+        let header_results: Vec<Vec<PathBuf>> = unique_roots
             .par_iter()
             .map(|dir| Self::collect_headers_in_dir(dir))
             .collect();
 
         let mut headers = Vec::new();
-        for result in header_results {
-            match result {
-                Ok(mut found) => headers.append(&mut found),
-                Err(err) => return Err(err),
-            }
+        for mut found in header_results {
+            headers.append(&mut found);
         }
 
         if let Some(flags) = base_flags {
@@ -292,7 +289,7 @@ impl RccGen {
         Ok(())
     }
 
-    fn collect_headers_in_dir(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    fn collect_headers_in_dir(dir: &Path) -> Vec<PathBuf> {
         let mut headers = Vec::new();
         for entry in WalkDir::new(dir)
             .max_depth(5)
@@ -319,7 +316,7 @@ impl RccGen {
             }
         }
 
-        Ok(headers)
+        headers
     }
 
     fn write_compile_commands(&self) -> io::Result<()> {
