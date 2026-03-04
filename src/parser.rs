@@ -164,11 +164,13 @@ impl MakeOutputParser {
             return working_dir.to_string_lossy().into_owned();
         }
 
-        if Path::new(&sanitized).is_absolute() {
-            sanitized
+        let normalized = if Path::new(&sanitized).is_absolute() {
+            validation::normalize_path(Path::new(&sanitized))
         } else {
-            working_dir.join(sanitized).to_string_lossy().into_owned()
-        }
+            validation::normalize_path(&working_dir.join(sanitized))
+        };
+
+        normalized.to_string_lossy().into_owned()
     }
 
     fn is_flag_with_argument(&self, flag: &str) -> bool {

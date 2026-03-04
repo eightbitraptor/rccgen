@@ -1,3 +1,5 @@
+use std::path::{Component, Path, PathBuf};
+
 /// Guardrails for path and command lengths we consider safe to process.
 const MAX_SAFE_PATH_LEN: usize = 4096;
 const MAX_SHELL_COMMAND_LEN: usize = 32_768;
@@ -32,9 +34,33 @@ pub fn sanitize_path(path: &str) -> String {
     cleaned.trim().to_string()
 }
 
+pub fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    let mut anchored = false;
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => {
+                anchored = true;
+                normalized.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() && !anchored {
+                    normalized.push("..");
+                }
+            }
+            Component::Normal(_) => normalized.push(component.as_os_str()),
+        }
+    }
+
+    normalized
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn test_validate_path() {
@@ -68,5 +94,12 @@ mod tests {
         assert_eq!(sanitize_path("path\0to\0file"), "pathtofile");
         assert_eq!(sanitize_path("path\nto\rfile"), "pathtofile");
         assert_eq!(sanitize_path("path\tto\tfile"), "path\tto\tfile");
+    }
+
+    #[test]
+    fn test_normalize_path() {
+        assert_eq!(normalize_path(Path::new("/project/./src/../file.c")), PathBuf::from("/project/file.c"));
+        assert_eq!(normalize_path(Path::new("src/./dir/../file.c")), PathBuf::from("src/file.c"));
+        assert_eq!(normalize_path(Path::new("../src/../file.c")), PathBuf::from("../file.c"));
     }
 }

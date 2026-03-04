@@ -235,21 +235,12 @@ impl RccGen {
         include_paths.insert(self.working_dir.join("src"));
         include_paths.insert(self.working_dir.clone());
 
-        let mut include_dirs: Vec<PathBuf> = include_paths
+        let include_dirs: Vec<PathBuf> = include_paths
             .into_iter()
             .filter(|dir| dir.exists() && dir.is_dir())
             .collect();
-        include_dirs.sort_by_key(|path| path.components().count());
 
-        let mut unique_roots = Vec::new();
-        for dir in include_dirs {
-            if unique_roots.iter().any(|root: &PathBuf| dir != *root && dir.starts_with(root)) {
-                continue;
-            }
-            unique_roots.push(dir);
-        }
-
-        let header_results: Vec<Vec<PathBuf>> = unique_roots
+        let header_results: Vec<Vec<PathBuf>> = include_dirs
             .par_iter()
             .map(|dir| Self::collect_headers_in_dir(dir))
             .collect();
@@ -301,7 +292,7 @@ impl RccGen {
                 }
 
                 let name = entry.file_name().to_str().unwrap_or("");
-                !(name.starts_with('.') || name == "build" || name == "CMakeFiles")
+                !((name.starts_with('.') && name != ".ext") || name == "build" || name == "CMakeFiles")
             })
             .filter_map(|e| e.ok())
         {
@@ -345,9 +336,9 @@ impl RccGen {
         }
 
         if Path::new(&sanitized).is_absolute() {
-            PathBuf::from(sanitized)
+            validation::normalize_path(Path::new(&sanitized))
         } else {
-            working_dir.join(sanitized)
+            validation::normalize_path(&working_dir.join(sanitized))
         }
     }
 
