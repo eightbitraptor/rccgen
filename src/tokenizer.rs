@@ -33,8 +33,7 @@ pub fn tokenize(command: &str) -> Vec<String> {
             }
             ' ' | '\t' if !in_quotes => {
                 if !current.is_empty() {
-                    tokens.push(current.clone());
-                    current.clear();
+                    tokens.push(std::mem::take(&mut current));
                 }
             }
             _ => {
