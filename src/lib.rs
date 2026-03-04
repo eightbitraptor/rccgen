@@ -5,9 +5,10 @@ pub mod tokenizer;
 pub mod validation;
 
 use std::collections::HashSet;
-use std::io;
+use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
+use std::thread;
 use walkdir::WalkDir;
 
 use rayon::prelude::*;
@@ -91,8 +92,7 @@ impl RccGen {
             ));
         }
 
-        let make_output = self.run_make_dry()?;
-        self.parse_make_output(&make_output)?;
+        self.run_make_and_parse()?;
         self.discover_headers()?;
         self.write_compile_commands()?;
 
@@ -110,75 +110,117 @@ impl RccGen {
             || self.working_dir.join("GNUmakefile").exists()
     }
 
-    fn run_make_dry(&self) -> io::Result<String> {
+    fn run_make_and_parse(&mut self) -> io::Result<()> {
         eprintln!("rccgen: Running make in dry-run mode...");
+        eprintln!("rccgen: Parsing compilation commands...");
 
         let base_args = ["-n", "-B", "-w", "--print-directory", "-j1"];
-        let output = Command::new("make")
-            .args(base_args)
-            .current_dir(&self.working_dir)
-            .env("MAKEFLAGS", "")
-            .env("MFLAGS", "")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-        if output.status.success() {
-            return Ok(stdout);
+        let (status, commands, stderr) = self.run_make_dry_attempt(&base_args)?;
+        if status.success() {
+            self.add_compile_commands(commands);
+            return Ok(());
         }
 
-        if self.contains_compile_commands(&stdout) {
+        if !commands.is_empty() {
             eprintln!(
                 "rccgen: Warning: make dry-run {} but produced commands; using partial output",
-                self.fmt_status(output.status)
+                self.fmt_status(status)
             );
-            return Ok(stdout);
+            self.add_compile_commands(commands);
+            return Ok(());
         }
 
         eprintln!("rccgen: make dry-run failed, retrying with explicit 'all' target...");
 
         let mut fallback_args = base_args.to_vec();
         fallback_args.push("all");
-        let fallback_output = Command::new("make")
-            .args(&fallback_args)
+
+        let (fallback_status, fallback_commands, fallback_stderr) = self.run_make_dry_attempt(&fallback_args)?;
+
+        if fallback_status.success() {
+            self.add_compile_commands(fallback_commands);
+            return Ok(());
+        }
+
+        if !fallback_commands.is_empty() {
+            eprintln!(
+                "rccgen: Warning: make dry-run with 'all' {} but produced commands; using partial output",
+                self.fmt_status(fallback_status)
+            );
+            self.add_compile_commands(fallback_commands);
+            return Ok(());
+        }
+
+        if !stderr.trim().is_empty() {
+            eprintln!("rccgen: Initial make stderr:\n{}", stderr.trim());
+        }
+
+        Err(self.make_failed(
+            &fallback_args,
+            fallback_status,
+            fallback_stderr.as_bytes(),
+        ))
+    }
+
+    fn run_make_dry_attempt(&self, args: &[&str]) -> io::Result<(ExitStatus, Vec<CompileCommand>, String)> {
+        let mut child = Command::new("make")
+            .args(args)
             .current_dir(&self.working_dir)
             .env("MAKEFLAGS", "")
             .env("MFLAGS", "")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .output()?;
+            .spawn()?;
 
-        let fallback_stdout = String::from_utf8_lossy(&fallback_output.stdout).into_owned();
-        if fallback_output.status.success() {
-            return Ok(fallback_stdout);
-        }
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| io::Error::other("failed to capture make stdout"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| io::Error::other("failed to capture make stderr"))?;
 
-        if self.contains_compile_commands(&fallback_stdout) {
-            eprintln!(
-                "rccgen: Warning: make dry-run with 'all' {} but produced commands; using partial output",
-                self.fmt_status(fallback_output.status)
-            );
-            return Ok(fallback_stdout);
-        }
+        let stderr_thread = thread::spawn(move || -> io::Result<String> {
+            let mut reader = BufReader::new(stderr);
+            let mut stderr_buf = String::new();
+            reader.read_to_string(&mut stderr_buf)?;
+            Ok(stderr_buf)
+        });
 
-        Err(self.make_failed(&fallback_args, fallback_output.status, &fallback_output.stderr))
+        let mut parser = MakeOutputParser::new(self.working_dir.clone())?;
+        let parse_result = parser.parse_reader(BufReader::new(stdout), &self.compiler_detector);
+        let wait_result = child.wait();
+
+        let stderr_result = stderr_thread
+            .join()
+            .map_err(|_| io::Error::other("stderr reader thread panicked"))?;
+
+        let commands = parse_result?;
+        let status = wait_result?;
+        let stderr_output = stderr_result?;
+
+        Ok((status, commands, stderr_output))
     }
 
+    #[cfg(test)]
     fn parse_make_output(&mut self, output: &str) -> io::Result<()> {
         eprintln!("rccgen: Parsing compilation commands...");
 
         let mut parser = MakeOutputParser::new(self.working_dir.clone())?;
         let commands = parser.parse(output, &self.compiler_detector)?;
+        self.add_compile_commands(commands);
 
+        Ok(())
+    }
+
+    fn add_compile_commands(&mut self, commands: Vec<CompileCommand>) {
         for cmd in commands {
             let file_path = cmd.file.clone();
             if self.processed_files.insert(file_path) {
                 self.compile_commands.push(cmd);
             }
         }
-
-        Ok(())
     }
 
     fn discover_headers(&mut self) -> io::Result<()> {
@@ -358,6 +400,7 @@ impl RccGen {
         matches!(flag, "-D" | "-U")
     }
 
+    #[cfg(test)]
     fn contains_compile_commands(&self, output: &str) -> bool {
         output
             .lines()

@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 use regex::Regex;
-use std::io;
+use std::io::{self, BufRead, BufReader, Cursor};
 use std::path::{Path, PathBuf};
 
 use crate::compiler::CompilerDetector;
@@ -35,60 +35,101 @@ impl MakeOutputParser {
     }
 
     pub fn parse(&mut self, output: &str, detector: &CompilerDetector) -> io::Result<Vec<CompileCommand>> {
+        self.parse_reader(BufReader::new(Cursor::new(output.as_bytes())), detector)
+    }
+
+    pub fn parse_reader<R: BufRead>(
+        &mut self,
+        reader: R,
+        detector: &CompilerDetector,
+    ) -> io::Result<Vec<CompileCommand>> {
+        const PARALLEL_TASK_THRESHOLD: usize = 64;
+        const TASK_BATCH_SIZE: usize = 256;
+
+        let mut commands = Vec::new();
         let mut tasks = Vec::new();
         let mut dir_stack = vec![self.working_dir.clone()];
 
-        for line in output.lines() {
-            let line = line.trim();
+        for line in reader.lines() {
+            let line = line?;
+            self.process_line(&line, &mut dir_stack, &mut tasks, detector);
 
-            if !validation::validate_shell_command(line) {
-                eprintln!("rccgen: Skipping invalid command line");
-                continue;
-            }
-
-            if line.contains("Entering") {
-                if let Some(captures) = self.dir_enter_regex.captures(line) {
-                    if let Some(dir_match) = captures.get(1) {
-                        let mut new_dir = PathBuf::from(dir_match.as_str());
-                        if !new_dir.is_absolute() {
-                            if let Some(base) = dir_stack.last() {
-                                new_dir = base.join(new_dir);
-                            } else {
-                                new_dir = self.working_dir.join(new_dir);
-                            }
-                        }
-                        dir_stack.push(new_dir);
-                    }
-                }
-            } else if self.dir_leave_regex.is_match(line) && dir_stack.len() > 1 {
-                dir_stack.pop();
-            }
-
-            let current_dir = dir_stack.last().cloned().unwrap_or_else(|| self.working_dir.clone());
-            let tokens = tokenizer::tokenize(line);
-            if detector.is_compilation_tokens(&tokens) {
-                tasks.push(CompilationTask {
-                    tokens,
-                    working_dir: current_dir,
-                });
+            if tasks.len() >= TASK_BATCH_SIZE {
+                self.drain_tasks(&mut tasks, &mut commands, detector, PARALLEL_TASK_THRESHOLD);
             }
         }
 
-        if tasks.len() < 64 {
-            let mut commands = Vec::new();
-            for task in tasks {
+        self.drain_tasks(&mut tasks, &mut commands, detector, PARALLEL_TASK_THRESHOLD);
+        Ok(commands)
+    }
+
+    fn process_line(
+        &self,
+        line: &str,
+        dir_stack: &mut Vec<PathBuf>,
+        tasks: &mut Vec<CompilationTask>,
+        detector: &CompilerDetector,
+    ) {
+        let line = line.trim();
+
+        if !validation::validate_shell_command(line) {
+            eprintln!("rccgen: Skipping invalid command line");
+            return;
+        }
+
+        if line.contains("Entering") {
+            if let Some(captures) = self.dir_enter_regex.captures(line) {
+                if let Some(dir_match) = captures.get(1) {
+                    let mut new_dir = PathBuf::from(dir_match.as_str());
+                    if !new_dir.is_absolute() {
+                        if let Some(base) = dir_stack.last() {
+                            new_dir = base.join(new_dir);
+                        } else {
+                            new_dir = self.working_dir.join(new_dir);
+                        }
+                    }
+                    dir_stack.push(new_dir);
+                }
+            }
+        } else if self.dir_leave_regex.is_match(line) && dir_stack.len() > 1 {
+            dir_stack.pop();
+        }
+
+        let current_dir = dir_stack.last().cloned().unwrap_or_else(|| self.working_dir.clone());
+        let tokens = tokenizer::tokenize(line);
+        if detector.is_compilation_tokens(&tokens) {
+            tasks.push(CompilationTask {
+                tokens,
+                working_dir: current_dir,
+            });
+        }
+    }
+
+    fn drain_tasks(
+        &self,
+        tasks: &mut Vec<CompilationTask>,
+        commands: &mut Vec<CompileCommand>,
+        detector: &CompilerDetector,
+        parallel_threshold: usize,
+    ) {
+        if tasks.is_empty() {
+            return;
+        }
+
+        let batch = std::mem::take(tasks);
+        if batch.len() < parallel_threshold {
+            for task in batch {
                 commands.extend(self.parse_compilation_command(&task.tokens, &task.working_dir, detector));
             }
-            return Ok(commands);
+            return;
         }
 
-        let command_batches: Vec<Vec<CompileCommand>> = tasks
+        let command_batches: Vec<Vec<CompileCommand>> = batch
             .into_par_iter()
             .map(|task| self.parse_compilation_command(&task.tokens, &task.working_dir, detector))
             .collect();
 
-        let commands = command_batches.into_iter().flatten().collect();
-        Ok(commands)
+        commands.extend(command_batches.into_iter().flatten());
     }
 
     fn parse_compilation_command(
