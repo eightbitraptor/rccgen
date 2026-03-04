@@ -236,12 +236,21 @@ impl RccGen {
         include_paths.insert(self.working_dir.join("src"));
         include_paths.insert(self.working_dir.clone());
 
-        let include_dirs: Vec<PathBuf> = include_paths
+        let mut include_dirs: Vec<PathBuf> = include_paths
             .into_iter()
             .filter(|dir| dir.exists() && dir.is_dir())
             .collect();
+        include_dirs.sort_by_key(|path| path.components().count());
 
-        let header_results: Vec<io::Result<Vec<PathBuf>>> = include_dirs
+        let mut unique_roots = Vec::new();
+        for dir in include_dirs {
+            if unique_roots.iter().any(|root: &PathBuf| dir != *root && dir.starts_with(root)) {
+                continue;
+            }
+            unique_roots.push(dir);
+        }
+
+        let header_results: Vec<io::Result<Vec<PathBuf>>> = unique_roots
             .par_iter()
             .map(|dir| Self::collect_headers_in_dir(dir))
             .collect();
