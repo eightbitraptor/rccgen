@@ -8,18 +8,16 @@ use std::io;
 /// a compilation command.
 pub struct CompilerDetector {
     compiler_regex: Regex,
-    compiler_names: Vec<&'static str>,
 }
+
+const COMPILER_NAMES: &[&str] = &["gcc", "g++", "clang", "clang++", "cc", "c++"];
 
 impl CompilerDetector {
     pub fn new() -> io::Result<Self> {
         let compiler_pattern = r"(?:^|\s|/)(?:gcc|g\+\+|clang|clang\+\+|cc|c\+\+)(?:\s|$)";
         let compiler_regex = Regex::new(compiler_pattern).map_err(io::Error::other)?;
 
-        Ok(Self {
-            compiler_regex,
-            compiler_names: vec!["gcc", "g++", "clang", "clang++", "cc", "c++"],
-        })
+        Ok(Self { compiler_regex })
     }
 
     pub fn is_compilation_command(&self, line: &str) -> bool {
@@ -37,15 +35,17 @@ impl CompilerDetector {
         }
 
         let first_token = &tokens[0];
-        for compiler in &self.compiler_names {
-            if first_token == compiler || first_token.ends_with(&format!("/{}", compiler)) {
-                let has_compile_flag = tokens.iter().any(|t| t == "-c");
-                let has_source = tokens.iter().any(|t| self.is_source_file(t));
-                return has_compile_flag || has_source;
-            }
+        let compiler_name = first_token
+            .rsplit(|c| c == '/' || c == '\\')
+            .next()
+            .unwrap_or(first_token);
+        if !COMPILER_NAMES.contains(&compiler_name) {
+            return false;
         }
 
-        false
+        let has_compile_flag = tokens.iter().any(|t| t == "-c");
+        let has_source = tokens.iter().any(|t| self.is_source_file(t));
+        has_compile_flag || has_source
     }
 
     pub fn is_source_file(&self, path: &str) -> bool {
