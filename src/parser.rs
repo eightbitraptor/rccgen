@@ -59,9 +59,10 @@ impl MakeOutputParser {
             }
 
             let current_dir = dir_stack.last().cloned().unwrap_or_else(|| self.working_dir.clone());
+            let tokens = tokenizer::tokenize(line);
 
-            if detector.is_compilation_command(line) {
-                let parsed = self.parse_compilation_command(line, &current_dir, detector);
+            if detector.is_compilation_tokens(&tokens) {
+                let parsed = self.parse_compilation_command(&tokens, &current_dir, detector);
                 commands.extend(parsed);
             }
         }
@@ -71,11 +72,10 @@ impl MakeOutputParser {
 
     fn parse_compilation_command(
         &self,
-        line: &str,
+        tokens: &[String],
         working_dir: &Path,
         detector: &CompilerDetector,
     ) -> Vec<CompileCommand> {
-        let tokens = tokenizer::tokenize(line);
         if tokens.is_empty() {
             return Vec::new();
         }
@@ -220,8 +220,8 @@ mod tests {
         let detector = create_test_detector();
         let working_dir = PathBuf::from("/project");
 
-        let cmds =
-            parser.parse_compilation_command("gcc -c -Wall -I../include -o file.o file.c", &working_dir, &detector);
+        let tokens = tokenizer::tokenize("gcc -c -Wall -I../include -o file.o file.c");
+        let cmds = parser.parse_compilation_command(&tokens, &working_dir, &detector);
 
         assert_eq!(cmds.len(), 1);
         let cmd = &cmds[0];
@@ -239,7 +239,8 @@ mod tests {
         let detector = create_test_detector();
         let working_dir = PathBuf::from("/project");
 
-        let cmds = parser.parse_compilation_command("gcc -c file1.c file2.c -o output.o", &working_dir, &detector);
+        let tokens = tokenizer::tokenize("gcc -c file1.c file2.c -o output.o");
+        let cmds = parser.parse_compilation_command(&tokens, &working_dir, &detector);
 
         assert_eq!(cmds.len(), 2);
         assert!(cmds[0].file.ends_with("file1.c"));

@@ -28,6 +28,10 @@ impl CompilerDetector {
         }
 
         let tokens = crate::tokenizer::tokenize(line);
+        self.is_compilation_tokens(&tokens)
+    }
+
+    pub fn is_compilation_tokens(&self, tokens: &[String]) -> bool {
         if tokens.is_empty() {
             return false;
         }
