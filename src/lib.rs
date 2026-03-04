@@ -353,10 +353,7 @@ impl RccGen {
         if Path::new(&sanitized).is_absolute() {
             PathBuf::from(sanitized)
         } else {
-            working_dir
-                .join(&sanitized)
-                .canonicalize()
-                .unwrap_or_else(|_| working_dir.join(sanitized))
+            working_dir.join(sanitized)
         }
     }
 

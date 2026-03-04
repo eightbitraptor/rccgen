@@ -167,12 +167,7 @@ impl MakeOutputParser {
         if Path::new(&sanitized).is_absolute() {
             sanitized
         } else {
-            working_dir
-                .join(&sanitized)
-                .canonicalize()
-                .unwrap_or_else(|_| working_dir.join(sanitized))
-                .to_string_lossy()
-                .into_owned()
+            working_dir.join(sanitized).to_string_lossy().into_owned()
         }
     }
 
