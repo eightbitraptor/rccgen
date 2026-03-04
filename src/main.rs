@@ -1,16 +1,20 @@
+use std::process::ExitCode;
+
 use rccgen::RccGen;
 
-fn main() {
+fn main() -> ExitCode {
     let mut generator = match RccGen::new() {
         Ok(g) => g,
         Err(e) => {
             eprintln!("rccgen: Error initializing: {}", e);
-            std::process::exit(1);
+            return ExitCode::FAILURE;
         }
     };
 
     if let Err(e) = generator.run() {
         eprintln!("rccgen: Error: {}", e);
-        std::process::exit(1);
+        return ExitCode::FAILURE;
     }
+
+    ExitCode::SUCCESS
 }
