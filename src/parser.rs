@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use regex::Regex;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,11 @@ pub struct MakeOutputParser {
     working_dir: PathBuf,
     dir_enter_regex: Regex,
     dir_leave_regex: Regex,
+}
+
+struct CompilationTask {
+    tokens: Vec<String>,
+    working_dir: PathBuf,
 }
 
 impl MakeOutputParser {
@@ -29,7 +35,7 @@ impl MakeOutputParser {
     }
 
     pub fn parse(&mut self, output: &str, detector: &CompilerDetector) -> io::Result<Vec<CompileCommand>> {
-        let mut commands = Vec::new();
+        let mut tasks = Vec::new();
         let mut dir_stack = vec![self.working_dir.clone()];
 
         for line in output.lines() {
@@ -60,13 +66,28 @@ impl MakeOutputParser {
 
             let current_dir = dir_stack.last().cloned().unwrap_or_else(|| self.working_dir.clone());
             let tokens = tokenizer::tokenize(line);
-
             if detector.is_compilation_tokens(&tokens) {
-                let parsed = self.parse_compilation_command(&tokens, &current_dir, detector);
-                commands.extend(parsed);
+                tasks.push(CompilationTask {
+                    tokens,
+                    working_dir: current_dir,
+                });
             }
         }
 
+        if tasks.len() < 64 {
+            let mut commands = Vec::new();
+            for task in tasks {
+                commands.extend(self.parse_compilation_command(&task.tokens, &task.working_dir, detector));
+            }
+            return Ok(commands);
+        }
+
+        let command_batches: Vec<Vec<CompileCommand>> = tasks
+            .into_par_iter()
+            .map(|task| self.parse_compilation_command(&task.tokens, &task.working_dir, detector))
+            .collect();
+
+        let commands = command_batches.into_iter().flatten().collect();
         Ok(commands)
     }
 
@@ -101,7 +122,7 @@ impl MakeOutputParser {
         let mut results = Vec::new();
         for file in source_files {
             let file_path = self.resolve_path(&file, working_dir);
-            let normalized_tokens = self.normalize_tokens_for_file(&tokens, working_dir, detector, &file);
+            let normalized_tokens = self.normalize_tokens_for_file(tokens, working_dir, detector, &file);
 
             results.push(CompileCommand::with_arguments(
                 working_dir.to_string_lossy().into_owned(),
